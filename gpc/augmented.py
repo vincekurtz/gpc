@@ -79,13 +79,17 @@ class PolicyAugmentedController(SamplingBasedController):
     def optimize(self, state: mjx.Data, params: PACParams) -> Tuple[PACParams, Trajectory]:
         """Perform an optimization step to update the policy parameters.
 
+        This method samples from both the base controller's distribution and the
+        policy, rolls them out together, but only updates the base controller
+        using its own rollouts.
+
         Args:
             state: The initial state x₀.
             params: The current policy parameters.
 
         Returns:
             Updated policy parameters
-            Rollouts used to update the parameters
+            Rollouts used to update the parameters (includes both base and policy samples)
         """
         # Warm-start spline by advancing knot times by sim dt, then recomputing
         # the mean knots by evaluating the old spline at those times
@@ -99,11 +103,7 @@ class PolicyAugmentedController(SamplingBasedController):
 
         def _optimize_scan_body(params: PACParams, _: Any):
             # Sample control knots from both base controller and policy
-            base_knots, base_params = self.base_ctrl.sample_knots(params.base_params)
-            num_base_samples = base_knots.shape[0]
-            
-            # Combine with policy samples
-            knots = jnp.concatenate([base_knots, params.policy_samples], axis=0)
+            knots, params = self.sample_knots(params)
             knots = jnp.clip(knots, self.task.u_min, self.task.u_max)
 
             # Roll out the control sequences
@@ -111,8 +111,8 @@ class PolicyAugmentedController(SamplingBasedController):
             rollouts = self.rollout_with_randomizations(state, new_tk, knots, dr_rng)
             
             # Update base parameters using only the base controller's rollouts
-            base_rollouts = jax.tree.map(lambda x: x[:num_base_samples], rollouts)
-            base_params = self.base_ctrl.update_params(base_params, base_rollouts)
+            base_rollouts = jax.tree.map(lambda x: x[:self.num_samples], rollouts)
+            base_params = self.base_ctrl.update_params(params.base_params, base_rollouts)
             params = params.replace(base_params=base_params, rng=rng)
 
             return params, rollouts
@@ -126,7 +126,6 @@ class PolicyAugmentedController(SamplingBasedController):
 
     def sample_knots(self, params: PACParams) -> Tuple[jax.Array, PACParams]:
         """Sample control knots from the base controller and the policy."""
-        # This method is not used in our custom optimize, but keep it for compatibility
         base_samples, base_params = self.base_ctrl.sample_knots(
             params.base_params
         )
@@ -143,8 +142,3 @@ class PolicyAugmentedController(SamplingBasedController):
     def get_action(self, params: PACParams, t: float) -> jax.Array:
         """Get the action from the base controller at a given time."""
         return self.base_ctrl.get_action(params.base_params, t)
-
-    def get_action_sequence(self, params: PACParams) -> jax.Array:
-        """Get the action sequence from the controller."""
-        timesteps = jnp.arange(self.base_ctrl.ctrl_steps) * self.task.dt
-        return jax.vmap(self.get_action, in_axes=(None, 0))(params, timesteps)

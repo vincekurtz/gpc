@@ -43,8 +43,6 @@ def test_augmented() -> None:
 
     assert jnp.all(best_ctrl != 0.0)
     assert jnp.all(params.policy_samples == 1.0)
-
-    # Check that the mean knots are reasonable (not all zeros)
     assert jnp.any(params.base_params.mean != 0.0)
 
 
