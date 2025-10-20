@@ -109,10 +109,7 @@ class PolicyAugmentedController(SamplingBasedController):
             # Roll out the control sequences
             rng, dr_rng = jax.random.split(params.rng)
             rollouts = self.rollout_with_randomizations(state, new_tk, knots, dr_rng)
-            
-            # Update base parameters using only the base controller's rollouts
-            base_rollouts = jax.tree.map(lambda x: x[:self.num_samples], rollouts)
-            base_params = self.base_ctrl.update_params(params.base_params, base_rollouts)
+            base_params = self.base_ctrl.update_params(params.base_params, rollouts)
             params = params.replace(base_params=base_params, rng=rng)
 
             return params, rollouts
