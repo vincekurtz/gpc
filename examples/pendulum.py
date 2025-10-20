@@ -33,11 +33,19 @@ if __name__ == "__main__":
 
     if args.task == "train":
         # Train the policy and save it to a file
-        ctrl = PredictiveSampling(env.task, num_samples=8, noise_level=0.1)
+        plan_horizon = 0.5
+        num_knots = 5
+        ctrl = PredictiveSampling(
+            env.task,
+            num_samples=8,
+            noise_level=0.1,
+            plan_horizon=plan_horizon,
+            num_knots=num_knots,
+        )
         net = DenoisingMLP(
             action_size=env.task.model.nu,
             observation_size=env.observation_size,
-            horizon=env.task.planning_horizon,
+            horizon=num_knots,
             hidden_layers=[32, 32],
             rngs=nnx.Rngs(0),
         )
@@ -72,6 +80,8 @@ if __name__ == "__main__":
             task=env.task,
             num_samples=4,
             noise_level=0.1,
+            plan_horizon=0.5,
+            num_knots=policy.model.horizon,
         )
 
         mj_model = env.task.mj_model

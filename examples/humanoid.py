@@ -33,17 +33,21 @@ if __name__ == "__main__":
 
     if args.task == "train":
         # Train the policy and save it to a file
+        plan_horizon = 1.0
+        num_knots = 10
         ctrl = MPPI(
             env.task,
             num_samples=32,
             noise_level=1.0,
             temperature=0.1,
             num_randomizations=2,
+            plan_horizon=plan_horizon,
+            num_knots=num_knots,
         )
         net = DenoisingCNN(
             action_size=env.task.model.nu,
             observation_size=env.observation_size,
-            horizon=env.task.planning_horizon,
+            horizon=num_knots,
             feature_dims=(128,) * 3,
             timestep_embedding_dim=64,
             rngs=nnx.Rngs(0),
@@ -82,6 +86,8 @@ if __name__ == "__main__":
             num_samples=128,
             noise_level=0.5,
             num_randomizations=2,
+            plan_horizon=1.0,
+            num_knots=policy.model.horizon,
         )
 
         mj_model = env.task.mj_model

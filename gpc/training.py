@@ -79,24 +79,27 @@ def simulate_episode(
 
         # Update the action sequence with sampling-based predictive control
         psi, rollouts = ctrl.optimize(x.data, psi)
-        U_star = ctrl.get_action_sequence(psi)
-
+        
         # Record the lowest costs achieved by SPC and the policy
         # TODO: consider logging something more informative
         costs = jnp.sum(rollouts.costs, axis=1)
         spc_best_idx = jnp.argmin(costs[: -ctrl.num_policy_samples])
         policy_best_idx = (
-            jnp.argmin(costs[ctrl.num_policy_samples :])
-            + ctrl.num_policy_samples
+            jnp.argmin(costs[-ctrl.num_policy_samples :])
+            + len(costs) - ctrl.num_policy_samples
         )
         spc_best = costs[spc_best_idx]
         policy_best = costs[policy_best_idx]
+        
+        # Get the best knots (for recording training data)
+        U_star = rollouts.knots[jnp.argmin(costs)]
 
-        # Step the simulation
+        # Step the simulation - get the actual control action
         if strategy == "policy":
             u = Us[0, 0]
         elif strategy == "best":
-            u = U_star[0]
+            # Get control action at current time from best trajectory
+            u = rollouts.controls[jnp.argmin(costs), 0]
         else:
             raise ValueError(f"Unknown strategy: {strategy}")
         exploration_noise = exploration_noise_level * jax.random.normal(
@@ -113,7 +116,7 @@ def simulate_episode(
     rng, u_rng = jax.random.split(rng)
     U = jax.random.normal(
         u_rng,
-        (ctrl.num_policy_samples, env.task.planning_horizon, env.task.model.nu),
+        (ctrl.num_policy_samples, ctrl.base_ctrl.num_knots, env.task.model.nu),
     )
     _, (y, U, U_guess, J_spc, J_policy, states) = jax.lax.scan(
         _scan_fn, (x, U, psi), jnp.arange(env.episode_length)
@@ -287,8 +290,15 @@ def train(  # noqa: PLR0915 this is a long function, don't limit to 50 lines
 
     # Print some information about the training setup
     episode_seconds = env.episode_length * env.task.model.opt.timestep
-    horizon_seconds = env.task.planning_horizon * env.task.dt
-    num_samples = num_policy_samples + ctrl.num_samples
+    horizon_seconds = ctrl.plan_horizon
+    # Get num_samples from controller (handle Evosax which stores it in strategy.population_size)
+    if hasattr(ctrl, 'num_samples'):
+        base_num_samples = ctrl.num_samples
+    elif hasattr(ctrl, 'strategy') and hasattr(ctrl.strategy, 'population_size'):
+        base_num_samples = ctrl.strategy.population_size
+    else:
+        base_num_samples = 0
+    num_samples = num_policy_samples + base_num_samples
     print("Training with:")
     print(
         f"  episode length: {episode_seconds} seconds"
@@ -297,7 +307,7 @@ def train(  # noqa: PLR0915 this is a long function, don't limit to 50 lines
     (
         print(
             f"  planning horizon: {horizon_seconds} seconds"
-            f" ({env.task.planning_horizon} knots)"
+            f" ({ctrl.num_knots} knots)"
         ),
     )
     print(
@@ -401,9 +411,9 @@ def train(  # noqa: PLR0915 this is a long function, don't limit to 50 lines
         """
         # Flatten across timesteps and initial conditions
         y = observations.reshape(-1, observations.shape[-1])
-        U = actions.reshape(-1, env.task.planning_horizon, env.task.model.nu)
+        U = actions.reshape(-1, ctrl.num_knots, env.task.model.nu)
         U_guess = previous_actions.reshape(
-            -1, env.task.planning_horizon, env.task.model.nu
+            -1, ctrl.num_knots, env.task.model.nu
         )
 
         # Rescale the actions from [u_min, u_max] to [-1, 1]

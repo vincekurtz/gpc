@@ -12,7 +12,7 @@ class PendulumEnv(TrainingEnv):
     def __init__(self, episode_length: int) -> None:
         """Set up the pendulum training environment."""
         super().__init__(
-            task=Pendulum(planning_horizon=5),
+            task=Pendulum(),
             episode_length=episode_length,
         )
 

@@ -55,11 +55,20 @@ class BootstrappedPredictiveSampling(PredictiveSampling):
             Updated policy parameters
             Rollouts used to update the parameters
         """
+        # Warm-start spline by advancing knot times by sim dt, then recomputing
+        # the mean knots by evaluating the old spline at those times
+        tk = params.tk
+        new_tk = (
+            jnp.linspace(0.0, self.plan_horizon, self.num_knots) + state.time
+        )
+        new_mean = self.interp_func(new_tk, tk, params.mean[None, ...])[0]
+        params = params.replace(tk=new_tk, mean=new_mean)
+        
         rng, policy_rng, dr_rng = jax.random.split(params.rng, 3)
 
-        # Sample random control sequences
-        controls, params = self.sample_controls(params)
-        controls = jnp.clip(controls, self.task.u_min, self.task.u_max)
+        # Sample random control knots
+        knots, params = self.sample_knots(params)
+        knots = jnp.clip(knots, self.task.u_min, self.task.u_max)
 
         # Update sensor readings and get an observation
         state = mjx.forward(self.task.model, state)
@@ -68,7 +77,7 @@ class BootstrappedPredictiveSampling(PredictiveSampling):
         # Sample from the generative policy, which is conditioned on the latest
         # observation.
         policy_rngs = jax.random.split(policy_rng, self.num_policy_samples)
-        policy_controls = jax.vmap(
+        policy_knots = jax.vmap(
             self.policy.apply, in_axes=(None, None, 0, None)
         )(
             params.mean,
@@ -78,11 +87,11 @@ class BootstrappedPredictiveSampling(PredictiveSampling):
         )
 
         # Combine the random and policy samples
-        controls = jnp.concatenate([controls, policy_controls], axis=0)
+        knots = jnp.concatenate([knots, policy_knots], axis=0)
 
         # Roll out the control sequences, applying domain randomizations and
         # combining costs using self.risk_strategy.
-        rollouts = self.rollout_with_randomizations(state, controls, dr_rng)
+        rollouts = self.rollout_with_randomizations(state, new_tk, knots, dr_rng)
 
         # Update the policy parameters based on the combined costs
         params = params.replace(rng=rng)
