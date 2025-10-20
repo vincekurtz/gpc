@@ -43,7 +43,7 @@ def test_interactive(
         mj_data = mujoco.MjData(mj_model)
 
     # Initialize the action sequence
-    actions = jnp.zeros((task.planning_horizon, task.model.nu))
+    actions = jnp.zeros((policy.model.horizon, task.model.nu))
 
     # Set up an observation function
     mjx_data = mjx.make_data(task.model)

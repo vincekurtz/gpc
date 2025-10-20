@@ -2,14 +2,13 @@ import shutil
 import time
 from pathlib import Path
 
-import evosax
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import optax
 import pytest
 from flax import nnx
-from hydrax.algs import Evosax, PredictiveSampling
+from hydrax.algs import PredictiveSampling
 
 from gpc.architectures import DenoisingMLP
 from gpc.augmented import PolicyAugmentedController
@@ -22,14 +21,21 @@ def test_simulate() -> None:
     """Test simulating an episode."""
     rng = jax.random.key(0)
     env = ParticleEnv(episode_length=13)
+    num_knots = 5
     ctrl = PolicyAugmentedController(
-        PredictiveSampling(env.task, num_samples=8, noise_level=0.1),
+        PredictiveSampling(
+            env.task,
+            num_samples=8,
+            noise_level=0.1,
+            plan_horizon=0.5,
+            num_knots=num_knots,
+        ),
         num_policy_samples=8,
     )
     net = DenoisingMLP(
         action_size=env.task.model.nu,
         observation_size=env.observation_size,
-        horizon=env.task.planning_horizon,
+        horizon=num_knots,
         hidden_layers=[32, 32],
         rngs=nnx.Rngs(0),
     )
@@ -123,29 +129,23 @@ def test_train() -> None:
     log_dir.mkdir(parents=True, exist_ok=True)
 
     env = ParticleEnv()
+    num_knots = 10
     net = DenoisingMLP(
         action_size=env.task.model.nu,
         observation_size=env.observation_size,
-        horizon=env.task.planning_horizon,
+        horizon=num_knots,
         hidden_layers=[32, 32],
         rngs=nnx.Rngs(0),
     )
 
-    # Try training with an incompatible controller
-    with pytest.raises(AssertionError):
-        invalid_ctrl = Evosax(env.task, evosax.Sep_CMA_ES, num_samples=8)
-        policy = train(
-            env,
-            invalid_ctrl,
-            net,
-            num_policy_samples=2,
-            log_dir=log_dir,
-            num_iters=1,
-            num_envs=4,
-        )
-
     # Train with predictive sampling
-    ctrl = PredictiveSampling(env.task, num_samples=8, noise_level=0.1)
+    ctrl = PredictiveSampling(
+        env.task,
+        num_samples=8,
+        noise_level=0.1,
+        plan_horizon=1.0,
+        num_knots=num_knots,
+    )
     policy = train(
         env,
         ctrl,
@@ -162,11 +162,11 @@ def test_train() -> None:
     # Test the policy
     rng = jax.random.key(0)
     y = jnp.array([-0.1, 0.1, 0.0, 0.0])
-    U = jnp.zeros((env.task.planning_horizon, env.task.model.nu))
+    U = jnp.zeros((num_knots, env.task.model.nu))
     U = policy.apply(U, y, rng)
 
     # Check that the policy output points in the right direction
-    assert U.shape == (env.task.planning_horizon, env.task.model.nu)
+    assert U.shape == (num_knots, env.task.model.nu)
     assert U[0, 0] > 0.0
     assert U[0, 1] < 0.0
 

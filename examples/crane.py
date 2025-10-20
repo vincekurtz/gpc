@@ -33,11 +33,19 @@ if __name__ == "__main__":
 
     if args.task == "train":
         # Train the policy and save it to a file
-        ctrl = PredictiveSampling(env.task, num_samples=4, noise_level=0.05)
+        plan_horizon = 1.5
+        num_knots = 15
+        ctrl = PredictiveSampling(
+            env.task,
+            num_samples=4,
+            noise_level=0.05,
+            plan_horizon=plan_horizon,
+            num_knots=num_knots,
+        )
         net = DenoisingCNN(
             action_size=env.task.model.nu,
             observation_size=env.observation_size,
-            horizon=env.task.planning_horizon,
+            horizon=num_knots,
             feature_dims=[64, 64],
             timestep_embedding_dim=16,
             rngs=nnx.Rngs(0),
@@ -76,6 +84,8 @@ if __name__ == "__main__":
             task=env.task,
             num_samples=4,  # samples from a gaussian around the previous mean
             noise_level=0.05,
+            plan_horizon=1.5,
+            num_knots=policy.model.horizon,
         )
         mj_model = env.task.mj_model
         mj_data = mujoco.MjData(mj_model)
