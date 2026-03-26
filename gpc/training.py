@@ -81,13 +81,16 @@ def simulate_episode(
         psi, rollouts = ctrl.optimize(x.data, psi)
         U_star = ctrl.get_action_sequence(psi)
 
-        # Record the lowest costs achieved by SPC and the policy
+        # Record the lowest costs achieved by SPC and the policy. The first
+        # ctrl.base_ctrl.num_samples rollouts are from SPC, while the last
+        # ctrl.num_policy_samples rollouts are from the policy.
         # TODO: consider logging something more informative
         costs = jnp.sum(rollouts.costs, axis=1)
         spc_best_idx = jnp.argmin(costs[: -ctrl.num_policy_samples])
         policy_best_idx = (
-            jnp.argmin(costs[ctrl.num_policy_samples :])
-            + ctrl.num_policy_samples
+            jnp.argmin(costs[-ctrl.num_policy_samples :])
+            + costs.shape[0]
+            - ctrl.num_policy_samples
         )
         spc_best = costs[spc_best_idx]
         policy_best = costs[policy_best_idx]
